@@ -1,0 +1,76 @@
+# =========================
+# Python / virtualenv
+# =========================
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# =========================
+# Hugging Face / models
+# =========================
+.cache/
+.cache/**
+~/.cache/huggingface/
+**/.cache/huggingface/**
+**/huggingface/**
+**/*.safetensors
+**/*.bin
+**/*.pt
+**/*.pth
+**/*.ckpt
+**/*.index.json
+
+# =========================
+# Export artifacts (VERY LARGE)
+# =========================
+python_export/export_out/
+python_export/export_out/**
+export_out/
+export_out/**
+
+# =========================
+# Build artifacts
+# =========================
+build/
+build/**
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+
+# =========================
+# CUDA / profiling junk
+# =========================
+*.nvvp
+*.nsys-rep
+*.nsys-trace
+*.cubin
+*.fatbin
+
+# =========================
+# Logs / temp
+# =========================
+*.log
+tmp/
+tmp/**
+/tmp_pip/
+**/tmp_pip/
+
+# =========================
+# Editors / OS
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
