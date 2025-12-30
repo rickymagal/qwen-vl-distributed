@@ -75,7 +75,6 @@ static void send_tensor(int fd, const torch::Tensor& t) {
   uint8_t defined = 1;
   write_all(fd, &defined, 1);
 
-  // Serialize as CPU contiguous bytes.
   torch::Tensor cpu = t;
   if (cpu.is_cuda()) cpu = cpu.to(torch::kCPU);
   if (!cpu.is_contiguous()) cpu = cpu.contiguous();
@@ -176,7 +175,6 @@ TcpClient::~TcpClient() {
 }
 
 void TcpClient::send_activation(const ActivationPacket& p) {
-  // Simple length-prefixed message: write fields directly.
   int32_t version = htonl((uint32_t)p.version);
   int32_t stage_from = htonl((uint32_t)p.stage_from);
   int32_t stage_to = htonl((uint32_t)p.stage_to);
@@ -252,10 +250,7 @@ TcpConn::TcpConn(int fd) : fd_(fd) {}
 TcpConn::~TcpConn() { if (fd_ >= 0) ::close(fd_); }
 
 void TcpConn::send_activation(const ActivationPacket& p) {
-  TcpClient tmp("127.0.0.1", 1);
-  (void)tmp;
-  // Not used. Use the standalone helpers below.
-  throw std::runtime_error("TcpConn::send_activation not implemented");
+  send_activation_raw(p);
 }
 
 ActivationPacket TcpConn::recv_activation() {

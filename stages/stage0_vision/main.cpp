@@ -1,35 +1,32 @@
-#include <torch/torch.h>
+#include <cstdlib>
 #include <iostream>
-#include "core/config.h"
-#include "model/model_stage.h"
+#include <string>
 
-using namespace qwen;
+#include "core/tensor_utils.h"
+#include "vision/vision_encoder.h"
+
+static int arg_int(int argc, char** argv, const char* key, int defv) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (std::string(argv[i]) == key) return std::atoi(argv[i + 1]);
+  }
+  return defv;
+}
+
+static qwen::ModelConfig make_cfg(int argc, char** argv) {
+  qwen::ModelConfig cfg;
+  cfg.device_index = arg_int(argc, argv, "--device", 0);
+  return cfg;
+}
 
 int main(int argc, char** argv) {
-  ModelConfig cfg;
-  cfg.stage_id = 0;
-  cfg.stage_count = 4;
-  cfg.layer_start = 0;
-  cfg.layer_end = 0; // vision-only stage
-  cfg.device_index = 0;
+  qwen::ModelConfig cfg = make_cfg(argc, argv);
 
-  torch::Device device(torch::kCUDA, cfg.device_index);
-  torch::cuda::setDevice(cfg.device_index);
+  qwen::VisionEncoder ve(cfg);
 
-  ModelStage stage(cfg);
-  stage->to(device);
+  auto images = torch::zeros({1, 3, 224, 224}, torch::dtype(torch::kFloat16).device(torch::kCUDA));
+  auto out = ve->forward(images);
 
-  // Dummy vision input (shape placeholder)
-  torch::Tensor images = torch::randn({1, 3, 224, 224}, device);
-
-  StageInput in;
-  in.images = images;
-  in.pos = 0;
-
-  StageOutput out = stage->forward(in);
-
-  std::cout << "[stage0] produced hidden shape: "
-            << out.hidden_out.sizes() << std::endl;
-
+  qwen::require(out.defined(), "stage0_vision: output undefined");
+  std::cout << "stage0_vision ok\n";
   return 0;
 }

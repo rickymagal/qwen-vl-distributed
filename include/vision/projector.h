@@ -1,23 +1,26 @@
+// include/vision/projector.h
 #pragma once
 
 #include <torch/torch.h>
-#include <c10/util/Optional.h>
 #include <string>
 #include "core/config.h"
 
 namespace qwen {
 
-// Multimodal projector interface.
-// Takes vision embeddings and projects them to text hidden size (or an adapter space).
+// Multimodal projector (vision -> text hidden).
+// Milestone 2 implementation provides a real module graph that:
+// - Accepts vision embeddings [B, V, Dv]
+// - Produces projected embeddings [B, V, Dtext]
+// - Runs fully on CUDA
+// - Uses a simple, common structure (Linear -> GELU -> Linear) to exercise graph correctness
 //
-// For Milestone 1 we define the contract only; the internal structure will be
-// finalized during spec lock and implemented in src/vision/projector.cpp.
+// Exact projector spec and weight mapping are addressed in Milestone 3.
 
 class ProjectorImpl : public torch::nn::Module {
 public:
   explicit ProjectorImpl(const ModelConfig& cfg);
 
-  // vision_emb: [B, V, Dv] -> projected: [B, V, Dtext] (typical)
+  // vision_emb: [B, V, Dv] -> [B, V, Dtext]
   torch::Tensor forward(const torch::Tensor& vision_emb);
 
   const ModelConfig& cfg() const { return cfg_; }
@@ -25,8 +28,17 @@ public:
 private:
   ModelConfig cfg_;
 
-  // Placeholder; real projector may be MLP or linear stack.
-  torch::nn::Linear proj_{nullptr};
+  int64_t in_dim_ = 1024;
+  int64_t out_dim_ = 4096;
+  int64_t mid_dim_ = 4096;
+
+  torch::nn::Linear fc1_{nullptr};
+  torch::nn::Linear fc2_{nullptr};
+  torch::nn::LayerNorm norm_{nullptr};
+  torch::nn::Dropout drop_{nullptr};
+
+private:
+  static int64_t get_cfg_i64(const ModelConfig& cfg, const char* key, int64_t fallback);
 };
 
 TORCH_MODULE(Projector);

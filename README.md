@@ -83,9 +83,42 @@ Milestone 1 is considered **complete** once export artifacts are generated succe
 
 ---
 
-## Milestone 2 — LibTorch Model Rewrite (Planned)
+## Milestone 2 — LibTorch Model Rewrite (Completed)
 
-_To be filled after completion._
+### Objective
+
+Implement a working C++/LibTorch codebase that mirrors the Qwen3-VL high-level module boundaries (vision encoder → projector → text stack), plus the runtime scaffolding required for pipeline-stage execution, so we can begin weight-loading and parity work as soon as the exported artifacts are available.
+
+### Work Performed
+
+- Implemented the core LibTorch module skeletons:
+  - Vision encoder module (torch::nn-based) and projector wiring
+  - Text-side components (embedding, transformer block wrapper, stage model container)
+- Implemented runtime stage scaffolding:
+  - `PipelineStage` execution path for “run local” vs “run from activation”
+  - Activation packet types and stage I/O structs used to carry tensors + metadata between stages
+- Added stage executables under `stages/` and ensured they build end-to-end:
+  - `stage0_vision`, `stage0`, `stage1`, `stage2`, `stage3`, `stage1_blocks`, `stage2_blocks`, `stageN_output`
+- Added a CUDA smoke forward binary (`tests/test_smoke_forward.cu`) that exercises the LibTorch module wiring on GPU and provides early device/layout validation.
+- Fixed incremental build issues found during compilation (namespace and header/impl mismatches) so the full tree builds with the LibTorch toolchain discovered via `torch.utils.cmake_prefix_path`.
+
+### Notes / Current Limitations (by design)
+
+- Real inference is blocked until Milestone 3 because the exported model artifacts are not yet present on disk (weights are too large; SSD pending).
+- `stage0` intentionally refuses to run without initialized embedding/weights; this is expected until the weight loader is wired in Milestone 3.
+- The CUDA smoke test is an execution sanity-check (device/layout + wiring), not a parity/correctness test yet.
+
+### Deliverables
+
+Buildable C++ runtime + stage binaries:
+- `libqwen_core.a`
+- `stage0_vision`, `stage0`, `stage1`, `stage2`, `stage3`
+- `stage1_blocks`, `stage2_blocks`, `stageN_output`
+
+Smoke test:
+- `tests/test_smoke_forward.cu` (built as `test_smoke_forward_cuda`)
+
+Milestone 2 is considered **complete** once the full project builds successfully and the stage executables + CUDA smoke test are produced from a clean build directory.
 
 ---
 
