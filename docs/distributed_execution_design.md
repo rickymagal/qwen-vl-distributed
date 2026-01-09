@@ -1,174 +1,272 @@
-# Distributed Execution Design (Pipeline / Block Sharding)
+# Distributed Execution Design (Milestone 1)
 
-This document describes how a *single* Qwen3-VL inference instance is executed across multiple machines using **pipeline parallelism** (contiguous layer ranges per stage).
+This document defines the initial distributed execution design for running a **single inference session** of Qwen3-VL across **multiple machines** using **block-wise pipeline parallelism**.
 
-The intent is:
-- predictable ownership (each stage owns a fixed set of layers and its KV cache)
-- minimal cross-machine traffic (only activations + token metadata)
-- simple orchestration (no expert-level routing over the network)
+Scope of this document:
+- Topology and responsibility boundaries
+- Activation + metadata contracts between stages
+- KV cache ownership and lifecycle
+- Orchestration model (how stages are started and connected)
+- What is explicitly out of scope for v1
 
----
-
-## Terms
-
-- **Stage**: one process (usually one GPU) that owns a contiguous layer range.
-- **Block / Layer**: one transformer layer in the text decoder.
-- **Shard**: the layer range `[layer_start, layer_end)` assigned to a stage.
-- **KV cache**: per-layer, per-token cached keys/values used for autoregressive decoding.
+This is a design/spec document. The implementation is delivered in later milestones.
 
 ---
 
-## Stage Topology
+## 1) Execution Model Overview
 
-The intended topology for Qwen3-VL is:
+We split the model into ordered pipeline stages:
 
-1. **stage0_vision** (optional): vision encoder + projector, producing initial text-side embeddings
-2. **stage0**: early text layers
-3. **stage1**: mid text layers
-4. **stage2**: mid text layers
-5. **stage3**: late text layers
-6. **stageN_output**: logits + sampling (may be co-located with the last stage)
+- **Stage 0 (Vision + Projector + Embedding)**:
+  - Image inputs are assumed to be provided as tensors by the caller
+  - Vision encoder forward
+  - Multimodal projector
+  - Text embedding and initial conditioning tensors
 
-Not all deployments need all binaries; the minimal “text-only” pipeline is stages 0..N plus output.
+- **Stage 1..N (Transformer Block Ranges)**:
+  - Each stage owns a contiguous range of transformer blocks
+  - Each stage maintains a **local KV cache** for its block range
 
----
+- **Final Stage (Last Blocks + LM Head)**:
+  - Remaining transformer blocks
+  - Output projection (LM head)
+  - Logits/top-k sampling (policy depends on runtime requirements)
 
-## Activation Contract (Between Stages)
+Stages communicate in order:
+`Stage 0 -> Stage 1 -> ... -> Stage N -> Final`
 
-Each stage receives a `StageInput` and returns a `StageOutput`:
-
-### Inputs (typical)
-- `pos` (int): current token position
-- `input_ids` (int64 CUDA tensor): `[batch, seq]` for the first stage
-- `hidden` (bf16/fp16 CUDA tensor): `[batch, seq, hidden]` for non-first stages
-- generation metadata (optional): attention mask mode, rope cache offsets, etc.
-
-### Outputs (typical)
-- `hidden_out` (bf16/fp16 CUDA tensor): `[batch, seq, hidden]`
-- KV updates are *local* (owned by the stage) and not transmitted in v1
-
-Rule: **All tensors passed to compute must live on the same CUDA device for that stage.**
+This is pipeline parallelism. The inference session is one logical request flow that traverses all stages.
 
 ---
 
-## Shard Boundary Computation
+## 2) Stage Responsibilities
 
-Shard boundaries can be provided explicitly or computed automatically.
+### 2.1 Model Partition Boundary
 
-### Explicit
-Each stage is launched with:
-- `--layer-start <int>`
-- `--layer-end <int>`
+Partition boundaries are defined only at:
+- Output of Stage 0 conditioning tensors
+- Output of transformer block range boundaries
 
-### Automatic (default)
-If not provided, boundaries are computed from:
-- `num_hidden_layers` read from `--hf-config /path/hf_config.json`
-- `--num-stages <S>`
-- `--stage-rank <r>`
+No partitioning is performed:
+- Inside an attention block
+- Inside MoE expert routing
+- Inside a single transformer block
 
-Algorithm:
-- Split layers as evenly as possible
-- Earlier stages receive one extra layer if `L % S != 0`
+### 2.2 KV Cache Ownership
 
-Pseudo-code:
+Each stage owns KV for its blocks:
 
-```cpp
-int base = L / S;
-int rem  = L % S;
+- For each generated token step, the stage updates its KV cache
+- No stage requests KV from another stage
+- KV is not transferred between machines in v1
 
-int start = r * base + std::min(r, rem);
-int end   = start + base + (r < rem ? 1 : 0);
-```
-
-This yields disjoint contiguous ranges covering `[0, L)`.
+KV lifecycle:
+- Created at request start (or first token)
+- Grows by one step per token
+- Destroyed when request ends (or evicted by policy in later milestones)
 
 ---
 
-## Concrete Example (Illustrative)
+## 2.5) Concrete shard boundaries and per-stage memory (S=2/4/8)
 
-If `num_hidden_layers = 80` and `num_stages = 4`:
+This section makes the layer-partitioning **concrete** for the target model and provides an **order-of-magnitude** memory estimate per stage.
 
-| Stage | Layer range |
-|---:|---|
-| 0 | `[0, 20)` |
-| 1 | `[20, 40)` |
-| 2 | `[40, 60)` |
-| 3 | `[60, 80)` |
+### Assumptions (explicit)
 
-If `num_hidden_layers` is not divisible by `num_stages`, the first stages get the remainder layers.
+All numbers below are **rough** and meant for capacity planning only.
 
-> The *actual* ranges for Qwen3-VL-235B are determined by the exported `hf_config.json` at runtime. The stage binaries print the final computed shard at startup.
+Model-side assumptions (from the HuggingFace `config.json` / exported `hf_config.json` for Qwen3-VL-235B-A22B):
+- `num_hidden_layers (L) = 94`
+- `num_key_value_heads = 4`
+- `head_dim = 128`
+- `max_position_embeddings (max_ctx) = 262,144`
+
+Memory assumptions:
+- **Weights dtype:** BF16/FP16 (2 bytes/param)
+- **KV dtype:** BF16/FP16 (2 bytes/element)
+- **Batch size:** 1 (single sequence)
+- **KV uses standard per-layer K/V storage:** for each token and layer we store K and V of shape `[num_kv_heads, head_dim]`
+
+Weight size assumption for order-of-magnitude:
+- **Total model parameters:** ~235B (by model name)
+- **Total weight footprint (BF16):** ~235B * 2 bytes ≈ **470 GB**
+  - Vision encoder + projector + embeddings/head are included in the same order-of-magnitude bucket (they do not change the conclusion).
+
+### KV formula used
+
+For a stage owning `L_s` decoder layers, the KV cache bytes at sequence length `T` is approximated as:
+
+`KV_bytes(stage) ≈ 2 (K+V) * L_s * num_kv_heads * head_dim * bytes_per_elem * batch * T`
+
+With the assumptions above:
+- Per-layer per-token KV bytes = `2 * 4 * 128 * 2 = 2,048 bytes`
+- So `KV_bytes(stage) ≈ 2,048 * L_s * T`
+
+At `T = max_ctx = 262,144`, this is **GiB-scale** even for modest `L_s`.
+
+### Layer ranges (derived from the even-layers sharding plan)
+
+The repo’s default plan (`make_plan_even_layers`) splits decoder layers as evenly as possible; the first `(L % S)` stages get one extra layer.
+
+Below, ranges are inclusive of start and exclusive of end: `[start, end)`.
+
+#### S = 2
+
+| Stage | Decoder layers | #layers | Weights (BF16, rough) | KV @ max_ctx (BF16, rough) |
+|---:|:---|---:|---:|---:|
+| 0 | [0, 47)  | 47 | ~235 GB | ~23.5 GiB |
+| 1 | [47, 94) | 47 | ~235 GB | ~23.5 GiB |
+
+#### S = 4
+
+| Stage | Decoder layers | #layers | Weights (BF16, rough) | KV @ max_ctx (BF16, rough) |
+|---:|:---|---:|---:|---:|
+| 0 | [0, 24)  | 24 | ~120 GB | ~12.0 GiB |
+| 1 | [24, 48) | 24 | ~120 GB | ~12.0 GiB |
+| 2 | [48, 71) | 23 | ~115 GB | ~11.5 GiB |
+| 3 | [71, 94) | 23 | ~115 GB | ~11.5 GiB |
+
+#### S = 8
+
+| Stage | Decoder layers | #layers | Weights (BF16, rough) | KV @ max_ctx (BF16, rough) |
+|---:|:---|---:|---:|---:|
+| 0 | [0, 12)  | 12 | ~60 GB  | ~6.0 GiB |
+| 1 | [12, 24) | 12 | ~60 GB  | ~6.0 GiB |
+| 2 | [24, 36) | 12 | ~60 GB  | ~6.0 GiB |
+| 3 | [36, 48) | 12 | ~60 GB  | ~6.0 GiB |
+| 4 | [48, 60) | 12 | ~60 GB  | ~6.0 GiB |
+| 5 | [60, 72) | 12 | ~60 GB  | ~6.0 GiB |
+| 6 | [72, 83) | 11 | ~55 GB  | ~5.5 GiB |
+| 7 | [83, 94) | 11 | ~55 GB  | ~5.5 GiB |
+
+### Notes
+
+- The weight estimates above are **layer-proportional**. In practice, there are shared components (vision encoder, projector, token embeddings, final norm, LM head) that are not perfectly layer-proportional; for planning purposes they are small compared to a 235B-scale model.
+- If KV precision is reduced (e.g., FP8/int8) the KV term scales down linearly with `bytes_per_elem`.
+- For batch size `B`, multiply the KV estimate by `B`.
+- For an actual run, replace the “~470 GB total weights” assumption with the exact size of the exported artifact(s) (e.g., `weights.pt` total bytes) and scale the “Weights” column accordingly.
+
+
+## 3) Data Contracts Between Stages
+
+All inter-stage data must be described by two components:
+
+1) **Tensor payload(s)** (activation buffers)
+2) **Metadata header** (shape, dtype, layout, offsets, request id, token position)
+
+### 3.1 Activation Tensor Contract (Core)
+
+At minimum, every stage boundary carries:
+
+- `hidden`: activation tensor for the next stage
+  - Prefill shape: `[batch, seq, hidden_size]`
+  - Decode shape: `[batch, 1, hidden_size]`
+
+Optional additional tensors at Stage 0 boundary:
+- `position_ids` / `rope_offsets` (if not derivable locally)
+
+The contract must specify:
+- dtype (BF16/FP16 in v1)
+- contiguous layout requirement
+- row-major order
+- byte stride assumptions
+
+### 3.2 Metadata Header (Minimum Fields)
+
+A minimal header (conceptual; implementation may use protobuf/flatbuffers/custom) includes:
+
+- `request_id` (u64)
+- `step_kind` enum: PREFILL or DECODE
+- `batch` (u32)
+- `seq` (u32)
+- `hidden_size` (u32)
+- `dtype` enum: FP16/BF16
+- `layout` enum: CONTIGUOUS
+- `token_index` (u32): current decode position
+- `stage_from` (u16), `stage_to` (u16)
+- `payload_bytes` (u64)
+- `crc32` or `xxhash64` (optional in v1; recommended)
 
 ---
 
-## Memory Estimates Per Stage
+## 4) Transport and Orchestration
 
-Total GPU memory per stage is approximately:
+### 4.1 Transport Options (v1 decision: keep simple and debuggable)
 
-1. **Weights** for the layers owned by the stage
-2. **KV cache** for those layers and the current sequence length
-3. Temporary **activations** and workspace
+We will support one primary transport at first. Candidate choices:
 
-### KV cache sizing (per stage)
+- **TCP sockets with a simple framing protocol**
+  - Pros: minimal dependencies, easy to debug, works everywhere
+  - Cons: manual reconnect/backpressure
 
-Let:
-- `B` = batch size (usually 1)
-- `T` = current sequence length (prompt + generated so far)
-- `H` = hidden size
-- `L_s` = number of layers on this stage
-- `dtype_bytes` = 2 for fp16/bf16
+- **gRPC**
+  - Pros: standard tooling, streaming, typed messages
+  - Cons: more overhead, more build complexity
 
-Typical transformer KV per layer stores K and V of shape `[B, n_heads, T, head_dim]`.
-Since `H = n_heads * head_dim`, KV bytes per layer is approximately:
+- **ZeroMQ**
+  - Pros: convenient patterns
+  - Cons: extra dependency, operational tuning
 
-`KV_bytes_per_layer ≈ 2 * B * T * H * dtype_bytes`
+Milestone 1 outcome:
+- The design supports either TCP framing or gRPC streaming.
+- The concrete implementation choice is made in Milestone 4 based on integration constraints.
 
-So stage KV is:
+### 4.2 Startup and Connection Model
 
-`KV_bytes_stage ≈ L_s * 2 * B * T * H * dtype_bytes`
+Orchestrator responsibilities:
+- Launch each stage binary on its assigned machine
+- Provide each stage with:
+  - stage index
+  - listen address
+  - upstream address (except Stage 0)
+  - downstream address (except Final)
+  - model partition spec for that stage (block range)
 
-This estimate ignores minor padding/metadata.
-
-### Weight sizing (rule of thumb)
-
-If each stage owns ~1/S of the layers, weight memory tends to scale similarly.
-For accurate numbers:
-- sum `numel * dtype_bytes` over all parameters owned by the stage
-- report it at startup (recommended)
-
----
-
-## Runtime Orchestration
-
-Each stage process does:
-
-1. Parse `--hf-config` and build `ModelConfig`
-2. Determine its shard boundaries (explicit or automatic)
-3. Load `--weights` and assign tensors to its owned modules
-4. Move model to the CUDA device selected by `--device`
-5. Enter request loop:
-   - receive input (tokens or hidden)
-   - run forward for its shard
-   - send output hidden to next stage
-
-Transport and serialization are an implementation detail (TCP sockets, gRPC, or custom protocol), but the contract is fixed: **hidden tensors + metadata**.
+Stages form a simple chain by connecting to downstream and accepting upstream.
 
 ---
 
-## Failure Modes & Guardrails
+## 5) Prefill vs Decode
 
-- Refuse to start if shard is empty or out of range.
-- Print a summary at startup:
-  - config (hidden, heads, layers, vocab)
-  - shard range
-  - device id
-  - weight keys loaded (count)
-- Validate that all required weights for owned layers exist before serving requests.
+### 5.1 Prefill
+
+Prefill runs a full sequence through the pipeline:
+- Stage 0 produces hidden states for the full prompt length
+- Each transformer stage processes `[batch, seq, hidden]`
+- Each stage populates KV for the full prompt
+
+### 5.2 Decode (Token-by-Token)
+
+Decode iterates token steps:
+- Stage 0 embeds the newly produced token (and maintains conditioning state if needed)
+- Each stage processes `[batch, 1, hidden]`
+- Each stage appends KV for that token step
+- Final stage produces logits and selects the next token
 
 ---
 
-## Status
+## 6) Failure Modes and Out-of-Scope Items (v1)
 
-- Pipeline sharding model is locked.
-- Concrete shard boundaries are computed from `hf_config.json` unless explicitly provided.
-- Memory estimates are provided as formulas and should be emitted as runtime logs once full weights are present.
+Out of scope for v1:
+- Fault tolerance / retries / resharding
+- Expert-centric sharding
+- Remote KV cache fetch
+- Dynamic pipeline scheduling
+- Multi-request batching across the pipeline
+- Security features (TLS, auth)
+- Advanced compression of activations
+
+v1 is designed to be deterministic, correct, and debuggable.
+
+---
+
+## 7) Acceptance Criteria for Milestone 1 (Design Portion)
+
+The distributed design portion of Milestone 1 is complete when:
+- Stage boundaries and responsibilities are defined
+- Activation and metadata contracts are defined
+- KV ownership and lifecycle are specified
+- Orchestration model is specified
+- Out-of-scope items are explicitly listed
+
+Implementation work is deferred to Milestone 4.

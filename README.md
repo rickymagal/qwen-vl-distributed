@@ -1,139 +1,118 @@
-# Qwen3-VL Distributed Inference Engine (C++ / LibTorch)
+# Qwen-VL Distributed (LibTorch/CUDA)
 
-This repository implements a **pure C++ / LibTorch inference runtime** for the Qwen3-VL family, targeting **a single inference instance distributed across multiple machines**. Python is used strictly as a **one-time export/build tool** and is never part of the runtime path.
+This repo contains a C++/LibTorch implementation scaffold for running **Qwen3-VL-235B-A22B-Thinking** in a **pipeline-parallel, multi-process / multi-machine** setting. The goal of Phase 1+2 is to lock architecture and export artifacts, then validate a CUDA-only forward pass that can execute stage-by-stage with explicit shard boundaries.
 
-Development proceeds **milestone by milestone**, with each milestone producing concrete, auditable deliverables. This README is incrementally extended as milestones are completed.
+## Status
 
----
+### Milestone 1 — Architecture spec lock, export artifact, and distributed execution design (DONE)
 
-## Project Goals
+Delivered:
+- **Frozen architecture + control-flow spec** for the multimodal stack (vision encoder → projector → transformer/MoE). See `docs/architecture.md`.
+- **Distributed execution design** with ownership rules and KV/activation transport semantics. See `docs/distributed_execution_design.md`.
+- **Python → C++ tensor-key mapping** describing how HuggingFace keys map to C++ modules/parameters. See `docs/weight_mapping.md`.
+- **Export artifact contract**: the C++ side is defined to consume:
+  - `hf_config.json` (model hyperparameters/config)
+  - `weights.pt` (packed Torch state_dict)
+  - (optional) `tensor_map.json` / index metadata, if provided by the exporter
 
-- Manual reimplementation of Qwen3-VL architecture in C++ using LibTorch
-- Full vision-language inference support (vision encoder, projector, text decoder)
-- Block-wise distributed inference across machines (single logical inference session)
-- No ONNX / TensorRT dependency
-- Python used only for offline export and inspection
-- Reproducible builds and explicit artifact boundaries
+Phase 1 resubmission gaps called out in review are addressed as follows:
 
----
+1) **Config loading integration**
+- Implemented JSON → `HfConfig` parsing and conversion into the runtime `ModelConfig`.
+- Entry points:
+  - `include/core/hf_config.h`, `src/core/hf_config.cpp`
+  - `qwen::load_hf_config_json(path)` and `qwen::model_config_from_hf_config(hf)`
 
-## Repository Structure (High Level)
+Example pattern (used by the stage binaries):
+- Load `hf_config.json`
+- Convert to `ModelConfig`
+- Derive shard config via `config_for_stage(...)`
 
+2) **Weight mapping documentation / code**
+- The full mapping pattern is documented in `docs/weight_mapping.md`.
+- The stage binaries demonstrate the intended usage:
+  - `stages/stage0/main.cpp` (vision + embeddings + early blocks)
+  - `stages/stage1/main.cpp`, `stages/stage2/main.cpp`, `stages/stage3/main.cpp`
+- The loader infrastructure is in `src/loader/*` (`PtWeightLoader`, TorchScript loader, etc.).
+
+3) **Concrete shard boundaries + memory estimates**
+- `docs/distributed_execution_design.md` now includes a concrete table for **S=2/4/8** giving:
+  - layer ranges per stage (derived from the sharding plan)
+  - order-of-magnitude per-stage memory (weights + KV formula with explicit assumptions)
+
+### Milestone 2 — LibTorch CUDA model with distributed pipeline boundaries (DONE)
+
+Delivered:
+- **CUDA-only LibTorch forward pass structure** for the multimodal stack:
+  - transformer blocks, attention, MoE routing, residuals/norms
+  - KV cache logic and stage-by-stage execution hooks
+- **Explicit pipeline stages** with reproducible stage binaries:
+  - `stage0_vision`, `stage0`, `stage1`, `stage2`, `stage3`, `stageN_output`
+  - block-focused runners: `stage1_blocks`, `stage2_blocks`
+- **Reproducible CMake build** and passing unit tests.
+
+## Repository layout
+
+- `include/` — public headers (`core/`, `model/`, `runtime/`, `vision/`, `loader/`)
+- `src/` — implementation
+- `stages/` — stage executables used to validate pipeline boundaries
+- `tests/` — unit tests (CUDA/CPU as applicable)
+- `docs/` — architecture, mapping, and distributed design documents
+
+## Build (CMake + LibTorch)
+
+This project uses the **LibTorch shipped inside your Python torch install**.
+
+Run this first to get the correct CMake prefix for your environment:
+
+```bash
+python3 -c "import torch; print(torch.utils.cmake_prefix_path)"
 ```
-.
-├── CMakeLists.txt
-├── cmake/
-│   └── TorchConfig.cmake
-├── include/
-│   ├── core/
-│   ├── vision/
-│   ├── model/
-│   ├── loader/
-│   └── runtime/
-├── src/
-│   ├── core/
-│   ├── vision/
-│   ├── model/
-│   ├── loader/
-│   └── runtime/
-├── python_export/
-│   ├── export_model.py
-│   ├── export_config.py
-│   └── requirements.txt
-├── tests/
-├── scripts/
-└── docs/
+
+Then build:
+
+```bash
+cd /path/to/qwen-vl-distributed
+
+# Optional but recommended: keep your local torch in a venv (matches your run environment).
+# source python_export/.venv/bin/activate
+
+rm -rf build
+CMAKE_PREFIX_PATH="$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')" cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+cmake --build build -j"$(nproc)"
 ```
 
----
+Notes:
+- CUDA is autodetected; the build will add the appropriate `-gencode` for your GPU.
+- Warnings about NVTX/kineto can appear depending on your torch build; they are not required for these milestones.
 
-## Milestone 1 — Architecture Lock, Export Artifacts, and Distributed Execution Design
+## Run tests
 
-### Objective
+```bash
+ctest --test-dir build --output-on-failure
+```
 
-Lock the exact Hugging Face model specification for **Qwen3-VL-235B-A22B-Thinking**, produce stable offline export artifacts consumable by LibTorch C++, and define the initial **distributed execution design** for running one inference session across multiple machines.
+## Run stage binaries (pipeline boundary validation)
 
-### Work Performed
+The stage binaries are intentionally simple runners that validate:
+- config loading (`hf_config.json` → `ModelConfig`)
+- sharding plan and per-stage config derivation
+- stage-local forward execution on CUDA (placeholder weights where applicable)
 
-- Pinned the Hugging Face repository and revision for deterministic builds
-- Performed model archeology (vision encoder, projector, transformer stack, MoE routing, KV cache behavior, tensor shapes/dtypes)
-- Implemented a CPU-only Python export path producing a packed `state_dict` and structured metadata
-- Produced an initial distributed execution design for block-wise sharding (pipeline parallelism)
+Typical usage (flags may vary slightly per stage binary; see `--help`):
 
-### Key Decisions (Milestone 1)
+```bash
+./build/stage0_vision --help
+./build/stage0 --help
+./build/stage1 --help
+./build/stage2 --help
+./build/stage3 --help
+./build/stageN_output --help
+```
 
-- Python is **not** part of the runtime and is used only for offline export
-- Export artifacts are treated as immutable build inputs
-- Runtime is **CUDA-only** and implemented in C++/LibTorch
-- Distributed execution uses **block-wise pipeline stages** (not expert-centric)
-- Each stage owns its local KV cache for its block range (no remote KV fetch in v1)
-- Stage-to-stage transfers use a strict activation contract (dtype/shape/layout) plus metadata
+## Docs (what to read first)
 
-### Deliverables
-
-Export artifacts (generated locally; not checked into git):
-- `hf_config.json` — frozen Hugging Face configuration
-- `weights.pt` — packed PyTorch state_dict (offline export)
-- `weights_manifest.json` — tensor shape/dtype manifest
-
-Distributed design (documented and versioned in repo):
-- `docs/distributed_execution_design.md` — stage topology, message contracts, KV ownership, orchestration model
-
-Milestone 1 is considered **complete** once export artifacts are generated successfully and the distributed execution design document is committed.
-
----
-
-## Milestone 2 — LibTorch Model Rewrite (Completed)
-
-### Objective
-
-Implement a working C++/LibTorch codebase that mirrors the Qwen3-VL high-level module boundaries (vision encoder → projector → text stack), plus the runtime scaffolding required for pipeline-stage execution, so we can begin weight-loading and parity work as soon as the exported artifacts are available.
-
-### Work Performed
-
-- Implemented the core LibTorch module skeletons:
-  - Vision encoder module (torch::nn-based) and projector wiring
-  - Text-side components (embedding, transformer block wrapper, stage model container)
-- Implemented runtime stage scaffolding:
-  - `PipelineStage` execution path for “run local” vs “run from activation”
-  - Activation packet types and stage I/O structs used to carry tensors + metadata between stages
-- Added stage executables under `stages/` and ensured they build end-to-end:
-  - `stage0_vision`, `stage0`, `stage1`, `stage2`, `stage3`, `stage1_blocks`, `stage2_blocks`, `stageN_output`
-- Added a CUDA smoke forward binary (`tests/test_smoke_forward.cu`) that exercises the LibTorch module wiring on GPU and provides early device/layout validation.
-- Fixed incremental build issues found during compilation (namespace and header/impl mismatches) so the full tree builds with the LibTorch toolchain discovered via `torch.utils.cmake_prefix_path`.
-
-### Notes / Current Limitations (by design)
-
-- Real inference is blocked until Milestone 3 because the exported model artifacts are not yet present on disk (weights are too large; SSD pending).
-- `stage0` intentionally refuses to run without initialized embedding/weights; this is expected until the weight loader is wired in Milestone 3.
-- The CUDA smoke test is an execution sanity-check (device/layout + wiring), not a parity/correctness test yet.
-
-### Deliverables
-
-Buildable C++ runtime + stage binaries:
-- `libqwen_core.a`
-- `stage0_vision`, `stage0`, `stage1`, `stage2`, `stage3`
-- `stage1_blocks`, `stage2_blocks`, `stageN_output`
-
-Smoke test:
-- `tests/test_smoke_forward.cu` (built as `test_smoke_forward_cuda`)
-
-Milestone 2 is considered **complete** once the full project builds successfully and the stage executables + CUDA smoke test are produced from a clean build directory.
-
----
-
-## Milestone 3 — Weight Loading & Parity Validation (Planned)
-
-_To be filled after completion._
-
----
-
-## Milestone 4 — Distributed Block-Wise Execution Implementation (Planned)
-
-_To be filled after completion._
-
----
-
-## Milestone 5 — Profiling, Hardening & Handoff (Planned)
-
-_To be filled after completion._
+- `docs/architecture.md` — architecture/spec lock
+- `docs/weight_mapping.md` — HuggingFace tensor-key → C++ parameter mapping
+- `docs/distributed_execution_design.md` — distributed plan + concrete shard tables for S=2/4/8
