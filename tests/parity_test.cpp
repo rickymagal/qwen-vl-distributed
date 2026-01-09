@@ -1,13 +1,17 @@
-#include <torch/torch.h>
 #include <iostream>
+
+#include <torch/torch.h>
+
 #include "core/config.h"
 #include "model/model_stage.h"
 
-using namespace qwen;
-
 int main() {
-  // Este teste valida apenas invariantes estruturais e determinismo básico.
-  ModelConfig cfg;
+  if (!torch::cuda::is_available()) {
+    // Skip on systems without CUDA.
+    return 0;
+  }
+
+  qwen::ModelConfig cfg;
   cfg.hidden_size = 4096;
   cfg.num_attention_heads = 32;
   cfg.num_hidden_layers = 2;
@@ -20,13 +24,13 @@ int main() {
   cfg.max_seq_len = 8;
 
   torch::cuda::setDevice(cfg.device_index);
-  ModelStage stage(cfg);
-  stage->to(torch::kCUDA);
+  qwen::ModelStage stage(cfg);
+  stage->to(torch::Device(torch::kCUDA, cfg.device_index));
 
-  torch::Tensor hidden =
-      torch::randn({1, 4, cfg.hidden_size}, torch::device(torch::kCUDA));
+  torch::Tensor hidden = torch::randn({1, 4, cfg.hidden_size},
+                                     torch::TensorOptions().device(torch::Device(torch::kCUDA, cfg.device_index)));
 
-  StageInput in;
+  qwen::StageInput in;
   in.hidden_in = hidden;
   in.pos = 0;
 

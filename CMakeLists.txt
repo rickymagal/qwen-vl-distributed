@@ -7,6 +7,8 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+option(QWEN_BUILD_TESTS "Build unit tests" ON)
+
 # CUDA toolkit (no deprecated FindCUDA)
 find_package(CUDAToolkit REQUIRED)
 
@@ -57,10 +59,9 @@ foreach(stage ${STAGE_DIRS})
   endif()
 endforeach()
 
-# Smoke test (CUDA translation unit)
-if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_smoke_forward.cu")
-  add_executable(test_smoke_forward_cuda tests/test_smoke_forward.cu)
-  target_include_directories(test_smoke_forward_cuda PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_link_libraries(test_smoke_forward_cuda PRIVATE qwen_core "${TORCH_LIBRARIES}" CUDA::cudart Threads::Threads)
-  set_property(TARGET test_smoke_forward_cuda PROPERTY CXX_STANDARD 17)
+# Tests
+if (QWEN_BUILD_TESTS)
+  include(CTest)
+  enable_testing()
+  add_subdirectory(tests)
 endif()

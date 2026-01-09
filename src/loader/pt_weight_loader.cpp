@@ -1,61 +1,69 @@
-// src/loader/pt_weight_loader.cpp
-#include "loader/pt_weight_loader.h"
+#include <loader/pt_weight_loader.h>
 
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
+#include <torch/script.h>
+
+#include <c10/util/Exception.h>
+
+#include <sstream>
 
 namespace qwen {
 
-PtWeightLoader::PtWeightLoader(const std::string& weights_path) {
-  torch::IValue root;
+PtWeightLoader::PtWeightLoader(std::string weights_path)
+    : weights_path_(std::move(weights_path)) {}
+
+bool PtWeightLoader::load() {
+  weights_.clear();
+
+  std::string err;
+  if (try_load_torchscript_(&err)) {
+    return true;
+  }
+
+  if (!err.empty()) {
+    std::ostringstream oss;
+    oss << "PtWeightLoader: failed to load weights from '" << weights_path_ << "': " << err;
+    throw std::runtime_error(oss.str());
+  }
+
+  std::ostringstream oss;
+  oss << "PtWeightLoader: failed to load weights from '" << weights_path_ << "'";
+  throw std::runtime_error(oss.str());
+}
+
+bool PtWeightLoader::try_load_torchscript_(std::string* err) {
   try {
-    torch::load(root, weights_path);
+    torch::jit::Module m = torch::jit::load(weights_path_);
+    return load_from_torchscript_(m, err);
+  } catch (const c10::Error& e) {
+    if (err) *err = e.what_without_backtrace();
+    return false;
   } catch (const std::exception& e) {
-    throw std::runtime_error(std::string("PtWeightLoader: torch::load failed: ") + e.what());
+    if (err) *err = e.what();
+    return false;
   }
+}
 
-  if (!root.isGenericDict()) {
-    throw std::runtime_error("PtWeightLoader: weights file is not a dict (expected state_dict)");
-  }
-
-  const auto d = root.toGenericDict();
-  weights_.reserve((size_t)d.size());
-
-  for (const auto& it : d) {
-    if (!it.key().isString()) {
-      throw std::runtime_error("PtWeightLoader: dict key is not a string");
+bool PtWeightLoader::load_from_torchscript_(torch::jit::Module& m, std::string* err) {
+  try {
+    for (const auto& p : m.named_parameters(/*recurse=*/true)) {
+      weights_[p.name] = p.value.detach().cpu();
     }
-    const std::string k = it.key().toStringRef();
-    if (!it.value().isTensor()) {
-      throw std::runtime_error("PtWeightLoader: dict value for key '" + k + "' is not a tensor");
+    for (const auto& b : m.named_buffers(/*recurse=*/true)) {
+      weights_[b.name] = b.value.detach().cpu();
     }
-    weights_.emplace(k, it.value().toTensor());
+
+    if (weights_.empty()) {
+      if (err) *err = "TorchScript module contained no parameters or buffers";
+      return false;
+    }
+    return true;
+  } catch (const c10::Error& e) {
+    if (err) *err = e.what_without_backtrace();
+    return false;
+  } catch (const std::exception& e) {
+    if (err) *err = e.what();
+    return false;
   }
-
-  if (weights_.empty()) {
-    throw std::runtime_error("PtWeightLoader: loaded empty state_dict");
-  }
-}
-
-bool PtWeightLoader::exists(const std::string& key) const {
-  return weights_.find(key) != weights_.end();
-}
-
-torch::Tensor PtWeightLoader::get(const std::string& key) const {
-  auto it = weights_.find(key);
-  if (it == weights_.end()) {
-    throw std::runtime_error("PtWeightLoader: missing key: " + key);
-  }
-  return it->second;
-}
-
-std::vector<std::string> PtWeightLoader::list_keys() const {
-  std::vector<std::string> ks;
-  ks.reserve(weights_.size());
-  for (const auto& kv : weights_) ks.push_back(kv.first);
-  return ks;
 }
 
 } // namespace qwen
