@@ -54,11 +54,11 @@ The actual C++ classes may have different internal member names, but **the mappi
 
 | HF key | Meaning | C++ destination |
 |---|---|---|
-| `model.embed_tokens.weight` | token embedding table | `Embedding::weight` |
-| `model.norm.weight` | final RMSNorm weight | final norm parameter |
+| `model.language_model.embed_tokens.weight` | token embedding table | `Embedding::weight` |
+| `model.language_model.norm.weight` | final RMSNorm weight | final norm parameter |
 | `lm_head.weight` | output projection | LM head linear weight |
 
-Some checkpoints use `model.lm_head.weight` instead of `lm_head.weight`. The loader should try both.
+Some checkpoints use `model.language_model.lm_head.weight` instead of `lm_head.weight`. The loader should try both.
 
 ### Per-layer keys (dense MLP)
 
@@ -66,15 +66,17 @@ For each transformer layer index `i` in `[0, num_hidden_layers)`:
 
 | HF key | Meaning |
 |---|---|
-| `model.layers.{i}.input_layernorm.weight` | pre-attn RMSNorm |
-| `model.layers.{i}.self_attn.q_proj.weight` | attention Q projection |
-| `model.layers.{i}.self_attn.k_proj.weight` | attention K projection |
-| `model.layers.{i}.self_attn.v_proj.weight` | attention V projection |
-| `model.layers.{i}.self_attn.o_proj.weight` | attention output projection |
-| `model.layers.{i}.post_attention_layernorm.weight` | pre-MLP RMSNorm |
-| `model.layers.{i}.mlp.gate_proj.weight` | MLP gate projection (SwiGLU) |
-| `model.layers.{i}.mlp.up_proj.weight` | MLP up projection |
-| `model.layers.{i}.mlp.down_proj.weight` | MLP down projection |
+| `model.language_model.layers.{i}.input_layernorm.weight` | pre-attn RMSNorm |
+| `model.language_model.layers.{i}.self_attn.q_proj.weight` | attention Q projection |
+| `model.language_model.layers.{i}.self_attn.k_proj.weight` | attention K projection |
+| `model.language_model.layers.{i}.self_attn.v_proj.weight` | attention V projection |
+| `model.language_model.layers.{i}.self_attn.o_proj.weight` | attention output projection |
+| `model.language_model.layers.{i}.self_attn.q_norm.weight` | optional Q RMSNorm (if `use_qk_norm`) |
+| `model.language_model.layers.{i}.self_attn.k_norm.weight` | optional K RMSNorm (if `use_qk_norm`) |
+| `model.language_model.layers.{i}.post_attention_layernorm.weight` | pre-MLP RMSNorm |
+| `model.language_model.layers.{i}.mlp.gate_proj.weight` | MLP gate projection (SwiGLU) |
+| `model.language_model.layers.{i}.mlp.up_proj.weight` | MLP up projection |
+| `model.language_model.layers.{i}.mlp.down_proj.weight` | MLP down projection |
 
 Biases:
 - Many Qwen-family checkpoints are bias-free. If a key is missing (e.g. `...bias`), treat it as expected unless your module declares bias parameters.
@@ -89,12 +91,16 @@ Common patterns (the export should preserve the model’s exact keys):
 
 | HF key pattern | Meaning |
 |---|---|
-| `model.layers.{i}.mlp.gate.weight` | router weight |
-| `model.layers.{i}.mlp.experts.{e}.gate_proj.weight` | expert `e` gate proj |
-| `model.layers.{i}.mlp.experts.{e}.up_proj.weight` | expert `e` up proj |
-| `model.layers.{i}.mlp.experts.{e}.down_proj.weight` | expert `e` down proj |
+| `model.language_model.layers.{i}.mlp.gate.weight` | router weight |
+| `model.language_model.layers.{i}.mlp.experts.gate_up_proj` | combined gate+up for all experts (shape varies) |
+| `model.language_model.layers.{i}.mlp.experts.down_proj` | expert down projections (shape varies) |
 
 Some variants use `router.weight` instead of `gate.weight`. Support both if your export indicates it.
+
+For Qwen3-VL-235B-A22B, MoE expert weights are grouped:
+- `...mlp.experts.gate_up_proj` packs gate+up and must be split before loading.
+- `...mlp.experts.down_proj` packs down projections.
+The C++ loader accepts either `[E, 2*I, H]` (gate+up) and `[E, H, I]` (down) or transposed equivalents.
 
 ---
 
@@ -150,10 +156,10 @@ static void load_param(
 Example (conceptual):
 
 ```cpp
-load_param(wl, embedding->weight(), "model.embed_tokens.weight", device);
+load_param(wl, embedding->weight(), "model.language_model.embed_tokens.weight", device);
 
 for (int i = 0; i < cfg.num_hidden_layers; ++i) {
-  load_param(wl, blocks[i]->attn->wq(), "model.layers."+std::to_string(i)+".self_attn.q_proj.weight", device);
+  load_param(wl, blocks[i]->attn->wq(), "model.language_model.layers."+std::to_string(i)+".self_attn.q_proj.weight", device);
   // ... same pattern for wk, wv, wo, norms, mlp weights ...
 }
 ```

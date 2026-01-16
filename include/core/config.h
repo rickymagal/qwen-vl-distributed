@@ -21,11 +21,16 @@ struct ModelConfig {
   int32_t num_attention_heads = 0;
   int32_t num_key_value_heads = 0;
   int32_t intermediate_size = 0;
+  int32_t moe_intermediate_size = 0;
+  float rms_norm_eps = 1e-6f;
+  bool use_qk_norm = false;
 
   // MoE
   bool use_moe = false;
   int32_t num_experts = 0;
   int32_t top_k = 0;
+  int32_t moe_layer_freq = 0;
+  std::vector<int32_t> mlp_only_layers;
 
   // RoPE
   float rope_theta = 10000.0f;
@@ -38,6 +43,9 @@ struct ModelConfig {
   // Vision (placeholder fields; actual values come from spec lock)
   int32_t vision_hidden_size = 0;
   int32_t vision_num_layers = 0;
+  int32_t vision_num_heads = 0;
+  int32_t vision_intermediate_size = 0;
+  int32_t vision_patch_size = 0;
 
   // Pipeline partitioning (block-wise)
   int32_t stage_id = 0;

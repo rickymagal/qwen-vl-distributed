@@ -46,11 +46,29 @@ AttentionImpl::AttentionImpl(const ModelConfig& cfg, int32_t layer_index_in_stag
   require(cfg_.hidden_size > 0, "Attention: cfg.hidden_size must be set");
   require(cfg_.num_attention_heads > 0, "Attention: cfg.num_attention_heads must be set");
 
-  // Projections: D -> D
-  wq_ = register_module("wq", torch::nn::Linear(cfg_.hidden_size, cfg_.hidden_size));
-  wk_ = register_module("wk", torch::nn::Linear(cfg_.hidden_size, cfg_.hidden_size));
-  wv_ = register_module("wv", torch::nn::Linear(cfg_.hidden_size, cfg_.hidden_size));
-  wo_ = register_module("wo", torch::nn::Linear(cfg_.hidden_size, cfg_.hidden_size));
+  // Projections: Q is D->D, K/V are D->(kv_heads*head_dim).
+  const int64_t q_heads = cfg_.num_attention_heads;
+  const int64_t kv_heads = (cfg_.num_key_value_heads > 0) ? cfg_.num_key_value_heads : q_heads;
+  require(cfg_.hidden_size % q_heads == 0, "Attention: hidden_size must be divisible by num_attention_heads");
+  const int64_t head_dim = cfg_.hidden_size / q_heads;
+  const int64_t kv_dim = kv_heads * head_dim;
+
+  wq_ = register_module(
+      "wq",
+      torch::nn::Linear(torch::nn::LinearOptions(cfg_.hidden_size, cfg_.hidden_size).bias(false)));
+  wk_ = register_module(
+      "wk",
+      torch::nn::Linear(torch::nn::LinearOptions(cfg_.hidden_size, kv_dim).bias(false)));
+  wv_ = register_module(
+      "wv",
+      torch::nn::Linear(torch::nn::LinearOptions(cfg_.hidden_size, kv_dim).bias(false)));
+  wo_ = register_module(
+      "wo",
+      torch::nn::Linear(torch::nn::LinearOptions(cfg_.hidden_size, cfg_.hidden_size).bias(false)));
+
+  q_norm_ = register_module("q_norm", RmsNorm(head_dim, cfg_.rms_norm_eps));
+  k_norm_ = register_module("k_norm", RmsNorm(head_dim, cfg_.rms_norm_eps));
+  use_qk_norm_ = cfg_.use_qk_norm;
 }
 
 torch::Tensor AttentionImpl::forward(const torch::Tensor& x,
@@ -70,6 +88,7 @@ torch::Tensor AttentionImpl::forward(const torch::Tensor& x,
   const int64_t q_heads = cfg_.num_attention_heads;
   const int64_t kv_heads = (cfg_.num_key_value_heads > 0) ? cfg_.num_key_value_heads : q_heads;
   require(q_heads > 0 && kv_heads > 0, "Attention: heads must be > 0");
+  require(kv_heads <= q_heads, "Attention: kv_heads must be <= q_heads");
   require(D % q_heads == 0, "Attention: hidden_size must be divisible by num_attention_heads");
   const int64_t head_dim = D / q_heads;
 
@@ -80,20 +99,12 @@ torch::Tensor AttentionImpl::forward(const torch::Tensor& x,
 
   // Shape to [B, H, T, Hd]
   q = q.view({B, T, q_heads, head_dim}).transpose(1, 2).contiguous();
-  k = k.view({B, T, q_heads, head_dim}).transpose(1, 2).contiguous();
-  v = v.view({B, T, q_heads, head_dim}).transpose(1, 2).contiguous();
+  k = k.view({B, T, kv_heads, head_dim}).transpose(1, 2).contiguous();
+  v = v.view({B, T, kv_heads, head_dim}).transpose(1, 2).contiguous();
 
-  // Reduce k/v heads to kv_heads (GQA/MQA)
-  if (kv_heads != q_heads) {
-    require(kv_heads <= q_heads, "Attention: kv_heads > q_heads not supported");
-    k = k.index({torch::indexing::Slice(),
-                 torch::indexing::Slice(0, kv_heads),
-                 torch::indexing::Slice(),
-                 torch::indexing::Slice()}).contiguous();
-    v = v.index({torch::indexing::Slice(),
-                 torch::indexing::Slice(0, kv_heads),
-                 torch::indexing::Slice(),
-                 torch::indexing::Slice()}).contiguous();
+  if (use_qk_norm_) {
+    q = q_norm_->forward(q);
+    k = k_norm_->forward(k);
   }
 
   // Apply RoPE to q and k if provided.

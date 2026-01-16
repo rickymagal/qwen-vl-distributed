@@ -9,11 +9,29 @@ MoeImpl::MoeImpl(const ModelConfig& cfg, int32_t layer_index_in_stage)
     : cfg_(cfg), layer_index_in_stage_(layer_index_in_stage) {
   require(cfg_.hidden_size > 0, "Moe: cfg.hidden_size must be set");
 
-  if (cfg_.use_moe) {
+  const int32_t global_layer = cfg_.layer_start + layer_index_in_stage_;
+  bool mlp_only = false;
+  for (int32_t v : cfg_.mlp_only_layers) {
+    if (v == global_layer) {
+      mlp_only = true;
+      break;
+    }
+  }
+
+  bool freq_allows = true;
+  if (cfg_.moe_layer_freq > 0) {
+    freq_allows = (global_layer % cfg_.moe_layer_freq) == 0;
+  }
+
+  use_moe_ = cfg_.use_moe && !mlp_only && freq_allows;
+
+  if (use_moe_) {
     require(cfg_.num_experts > 0, "Moe: cfg.num_experts must be set when use_moe=true");
     require(cfg_.top_k > 0, "Moe: cfg.top_k must be set when use_moe=true");
 
-    router_ = register_module("router", torch::nn::Linear(cfg_.hidden_size, cfg_.num_experts));
+    router_ = register_module(
+        "router",
+        torch::nn::Linear(torch::nn::LinearOptions(cfg_.hidden_size, cfg_.num_experts).bias(false)));
 
     const int64_t h = expert_hidden_dim();
     experts_mods_.reserve((size_t)cfg_.num_experts);
@@ -44,7 +62,7 @@ MoeOutput MoeImpl::forward(const torch::Tensor& x) {
 
   MoeOutput out;
 
-  if (!cfg_.use_moe) {
+  if (!use_moe_) {
     out.y = experts_mods_[0]->forward(x);
     out.router_logits = torch::Tensor();
     return out;

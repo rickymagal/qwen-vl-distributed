@@ -15,7 +15,8 @@ class EmbeddingImpl : public torch::nn::Module {
   const qwen::ModelConfig& cfg() const { return cfg_; }
 
   // Expose the underlying weight tensor for mapping/debugging.
-  torch::Tensor weight() const { return embedding_->weight; }
+  torch::Tensor& weight() { return embedding_->weight; }
+  const torch::Tensor& weight() const { return embedding_->weight; }
 
  private:
   qwen::ModelConfig cfg_;

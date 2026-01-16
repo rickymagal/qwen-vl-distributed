@@ -34,3 +34,7 @@ qwen_add_test(test_attention_cuda
 qwen_add_test(test_smoke_forward_cuda
   test_smoke_forward.cu
 )
+
+qwen_add_test(test_model_loader
+  test_model_loader.cpp
+)

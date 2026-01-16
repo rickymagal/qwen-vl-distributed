@@ -18,6 +18,7 @@ class PtWeightLoader {
  private:
   bool try_load_torchscript_(std::string* err);
   bool load_from_torchscript_(torch::jit::Module& m, std::string* err);
+  bool try_load_packed_state_dict_(std::string* err);
 
   std::string weights_path_;
   std::unordered_map<std::string, torch::Tensor> weights_;

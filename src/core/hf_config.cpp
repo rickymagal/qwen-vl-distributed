@@ -380,6 +380,17 @@ static bool as_string(const JsonValue& v, std::string* out) {
   return false;
 }
 
+static void parse_i32_array(const JsonValue& v, std::vector<int32_t>* out) {
+  if (!out) return;
+  if (v.type != JsonValue::Type::Array) return;
+  out->clear();
+  out->reserve(v.a.size());
+  for (const auto& item : v.a) {
+    int32_t x = 0;
+    if (as_i32(item, &x)) out->push_back(x);
+  }
+}
+
 static void parse_vision_config(const JsonObject& root, ModelConfig* cfg) {
   const JsonValue* vcfg_val = obj_get(root, "vision_config");
   if (!vcfg_val) return;
@@ -391,8 +402,24 @@ static void parse_vision_config(const JsonObject& root, ModelConfig* cfg) {
     if (hv) (void)as_i32(*hv, &cfg->vision_hidden_size);
   }
   {
+    const JsonValue* nh = obj_get(*vcfg, "num_heads");
+    if (nh) (void)as_i32(*nh, &cfg->vision_num_heads);
+  }
+  {
     const JsonValue* nl = obj_get(*vcfg, "num_hidden_layers");
     if (nl) (void)as_i32(*nl, &cfg->vision_num_layers);
+  }
+  {
+    const JsonValue* nl = obj_get(*vcfg, "depth");
+    if (nl && cfg->vision_num_layers <= 0) (void)as_i32(*nl, &cfg->vision_num_layers);
+  }
+  {
+    const JsonValue* ps = obj_get(*vcfg, "patch_size");
+    if (ps) (void)as_i32(*ps, &cfg->vision_patch_size);
+  }
+  {
+    const JsonValue* isz = obj_get(*vcfg, "intermediate_size");
+    if (isz) (void)as_i32(*isz, &cfg->vision_intermediate_size);
   }
 
   // Some configs store these fields with alternate keys.
@@ -462,21 +489,7 @@ static void parse_moe_fields(const JsonObject& root, ModelConfig* cfg) {
   cfg->use_moe = (cfg->num_experts > 0 && cfg->top_k > 0);
 }
 
-static void apply_root_fields(const JsonObject& root, ModelConfig* cfg) {
-  // Identity / dtype
-  {
-    const JsonValue* v = obj_get(root, "name_or_path");
-    if (v) (void)as_string(*v, &cfg->model_id);
-  }
-  if (cfg->model_id.empty()) {
-    const JsonValue* v = obj_get(root, "model_type");
-    if (v) (void)as_string(*v, &cfg->model_id);
-  }
-  {
-    const JsonValue* v = obj_get(root, "torch_dtype");
-    if (v) (void)as_string(*v, &cfg->dtype);
-  }
-
+static void apply_text_fields(const JsonObject& root, ModelConfig* cfg) {
   // Core text model params
   {
     const JsonValue* v = obj_get(root, "vocab_size");
@@ -501,6 +514,28 @@ static void apply_root_fields(const JsonObject& root, ModelConfig* cfg) {
   {
     const JsonValue* v = obj_get(root, "intermediate_size");
     if (v) (void)as_i32(*v, &cfg->intermediate_size);
+  }
+  {
+    const JsonValue* v = obj_get(root, "moe_intermediate_size");
+    if (v) (void)as_i32(*v, &cfg->moe_intermediate_size);
+  }
+  {
+    const JsonValue* v = obj_get(root, "rms_norm_eps");
+    if (v) (void)as_f32(*v, &cfg->rms_norm_eps);
+  }
+  {
+    const JsonValue* v = obj_get(root, "qk_norm");
+    if (v) {
+      bool b = false;
+      if (as_bool(*v, &b)) cfg->use_qk_norm = b;
+    }
+  }
+  {
+    const JsonValue* v = obj_get(root, "use_qk_norm");
+    if (v) {
+      bool b = false;
+      if (as_bool(*v, &b)) cfg->use_qk_norm = b;
+    }
   }
 
   // Sequence length
@@ -530,6 +565,49 @@ static void apply_root_fields(const JsonObject& root, ModelConfig* cfg) {
     const JsonValue* v = obj_get(root, "rope_dim");
     if (v) (void)as_i32(*v, &cfg->rope_dim);
   }
+  const JsonValue* rs = obj_get(root, "rope_scaling");
+  if (rs) {
+    const JsonObject* rso = as_object_ptr(*rs);
+    if (rso) {
+      const JsonValue* v = obj_get(*rso, "rope_theta");
+      if (v) (void)as_f32(*v, &cfg->rope_theta);
+    }
+  }
+
+  // MoE + layer selection hints
+  parse_moe_fields(root, cfg);
+  {
+    const JsonValue* v = obj_get(root, "decoder_sparse_step");
+    if (v) (void)as_i32(*v, &cfg->moe_layer_freq);
+  }
+  {
+    const JsonValue* v = obj_get(root, "mlp_only_layers");
+    if (v) parse_i32_array(*v, &cfg->mlp_only_layers);
+  }
+}
+
+static void apply_root_fields(const JsonObject& root, ModelConfig* cfg) {
+  // Identity / dtype
+  {
+    const JsonValue* v = obj_get(root, "name_or_path");
+    if (v) (void)as_string(*v, &cfg->model_id);
+  }
+  if (cfg->model_id.empty()) {
+    const JsonValue* v = obj_get(root, "model_type");
+    if (v) (void)as_string(*v, &cfg->model_id);
+  }
+  {
+    const JsonValue* v = obj_get(root, "torch_dtype");
+    if (v) (void)as_string(*v, &cfg->dtype);
+  }
+
+  apply_text_fields(root, cfg);
+
+  // Capacity
+  {
+    const JsonValue* v = obj_get(root, "max_batch_size");
+    if (v) (void)as_i32(*v, &cfg->max_batch);
+  }
 
   // Some configs place rope scaling under "rope_scaling".
   const JsonValue* rs = obj_get(root, "rope_scaling");
@@ -542,14 +620,14 @@ static void apply_root_fields(const JsonObject& root, ModelConfig* cfg) {
     }
   }
 
-  // Capacity
-  {
-    const JsonValue* v = obj_get(root, "max_batch_size");
-    if (v) (void)as_i32(*v, &cfg->max_batch);
+  // text_config (preferred for Qwen3-VL)
+  const JsonValue* text_cfg_val = obj_get(root, "text_config");
+  if (text_cfg_val) {
+    const JsonObject* text_cfg = as_object_ptr(*text_cfg_val);
+    if (text_cfg) apply_text_fields(*text_cfg, cfg);
   }
 
-  // MoE + vision
-  parse_moe_fields(root, cfg);
+  // Vision
   parse_vision_config(root, cfg);
 
   // If num_key_value_heads is missing, default to num_attention_heads.

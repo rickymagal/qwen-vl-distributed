@@ -7,8 +7,8 @@ TransformerBlockImpl::TransformerBlockImpl(const ModelConfig& cfg, int32_t layer
     : cfg_(cfg), layer_index_in_stage_(layer_index_in_stage) {
   require(cfg_.hidden_size > 0, "TransformerBlock: cfg.hidden_size must be set");
 
-  ln1_ = register_module("ln1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({cfg_.hidden_size})));
-  ln2_ = register_module("ln2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({cfg_.hidden_size})));
+  ln1_ = register_module("ln1", RmsNorm(cfg_.hidden_size, cfg_.rms_norm_eps));
+  ln2_ = register_module("ln2", RmsNorm(cfg_.hidden_size, cfg_.rms_norm_eps));
 
   attn_ = register_module("attn", Attention(cfg_, layer_index_in_stage_));
   moe_  = register_module("moe", Moe(cfg_, layer_index_in_stage_));

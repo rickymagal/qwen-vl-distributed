@@ -51,6 +51,16 @@ Delivered:
   - block-focused runners: `stage1_blocks`, `stage2_blocks`
 - **Reproducible CMake build** and passing unit tests.
 
+### Milestone 3 — Weight loading and numerical parity validation (DONE)
+
+Delivered:
+- **C++ weight loader with strict checks** (shape/dtype validation, missing/mismatch reporting) and MoE gate_up/down handling.
+- **Export validation + parity tooling**:
+  - `python_export/validate_export.py` (key coverage checks)
+  - `python_export/parity_check.py` + `build/parity_runner` (parity harness)
+  - `docs/parity_validation.md` (workflow and reduced-export report)
+- **Reduced export validation report** recorded in `docs/parity_validation.md`.
+
 ## Repository layout
 
 - `include/` — public headers (`core/`, `model/`, `runtime/`, `vision/`, `loader/`)
@@ -116,3 +126,4 @@ Typical usage (flags may vary slightly per stage binary; see `--help`):
 - `docs/architecture.md` — architecture/spec lock
 - `docs/weight_mapping.md` — HuggingFace tensor-key → C++ parameter mapping
 - `docs/distributed_execution_design.md` — distributed plan + concrete shard tables for S=2/4/8
+- `docs/parity_validation.md` — parity workflow and reporting

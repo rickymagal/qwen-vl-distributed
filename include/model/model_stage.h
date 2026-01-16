@@ -11,6 +11,7 @@
 #include "core/rope.h"
 #include "model/embedding.h"
 #include "model/transformer_block.h"
+#include "model/rms_norm.h"
 #include "vision/vision_encoder.h"
 #include "vision/projector.h"
 
@@ -51,6 +52,9 @@ public:
   VisionEncoder& vision() { return vision_; }
   Projector& projector() { return projector_; }
   Embedding& embedding() { return embedding_; }
+  RmsNorm& final_norm() { return final_norm_; }
+  torch::nn::Linear& lm_head() { return lm_head_; }
+  std::vector<TransformerBlock>& blocks() { return blocks_; }
 
 private:
   ModelConfig cfg_;
@@ -58,15 +62,18 @@ private:
   VisionEncoder vision_{nullptr};
   Projector projector_{nullptr};
   Embedding embedding_{nullptr};
+  RmsNorm final_norm_{nullptr};
 
   std::vector<TransformerBlock> blocks_;
 
   torch::nn::Linear lm_head_{nullptr}; // only used on last stage
 
   KVCache cache_;
+  c10::optional<RopeTables> rope_;
 
 private:
   int32_t block_count() const { return cfg_.layer_end - cfg_.layer_start; }
+  bool is_first_stage() const { return (cfg_.stage_id == 0); }
   bool is_last_stage() const { return (cfg_.stage_id >= 0) && (cfg_.stage_count > 0) && (cfg_.stage_id == cfg_.stage_count - 1); }
 };
 

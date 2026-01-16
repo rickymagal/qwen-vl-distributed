@@ -7,6 +7,7 @@
 #include "core/config.h"
 #include "core/kv_cache.h"
 #include "core/rope.h"
+#include "model/rms_norm.h"
 
 namespace qwen {
 
@@ -43,6 +44,11 @@ public:
   torch::Tensor& bv() { return wv_->bias; }
   torch::Tensor& bo() { return wo_->bias; }
 
+  void enable_qk_norm(bool enabled) { use_qk_norm_ = enabled; }
+  bool qk_norm_enabled() const { return use_qk_norm_; }
+  RmsNorm& q_norm() { return q_norm_; }
+  RmsNorm& k_norm() { return k_norm_; }
+
 private:
   ModelConfig cfg_;
   int32_t layer_index_in_stage_ = 0;
@@ -51,6 +57,10 @@ private:
   torch::nn::Linear wk_{nullptr};
   torch::nn::Linear wv_{nullptr};
   torch::nn::Linear wo_{nullptr};
+
+  RmsNorm q_norm_{nullptr};
+  RmsNorm k_norm_{nullptr};
+  bool use_qk_norm_ = false;
 };
 
 TORCH_MODULE(Attention);

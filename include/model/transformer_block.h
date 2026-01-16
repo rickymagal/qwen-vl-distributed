@@ -7,6 +7,7 @@
 #include "core/rope.h"
 #include "model/attention.h"
 #include "model/moe.h"
+#include "model/rms_norm.h"
 
 namespace qwen {
 
@@ -25,13 +26,17 @@ public:
                         const c10::optional<RopeTables>& rope);
 
   const ModelConfig& cfg() const { return cfg_; }
+  RmsNorm& ln1() { return ln1_; }
+  RmsNorm& ln2() { return ln2_; }
+  Attention& attn() { return attn_; }
+  Moe& moe() { return moe_; }
 
 private:
   ModelConfig cfg_;
   int32_t layer_index_in_stage_ = 0;
 
-  torch::nn::LayerNorm ln1_{nullptr};
-  torch::nn::LayerNorm ln2_{nullptr};
+  RmsNorm ln1_{nullptr};
+  RmsNorm ln2_{nullptr};
 
   Attention attn_{nullptr};
   Moe moe_{nullptr};

@@ -21,19 +21,27 @@ struct MoeOutput {
 };
 
 struct ExpertMLPImpl : public torch::nn::Module {
-  torch::nn::Linear fc1{nullptr};
-  torch::nn::Linear fc2{nullptr};
+  torch::nn::Linear gate_proj{nullptr};
+  torch::nn::Linear up_proj{nullptr};
+  torch::nn::Linear down_proj{nullptr};
 
   ExpertMLPImpl(int64_t model_dim, int64_t hidden_dim) {
-    fc1 = register_module("fc1", torch::nn::Linear(model_dim, hidden_dim));
-    fc2 = register_module("fc2", torch::nn::Linear(hidden_dim, model_dim));
+    gate_proj = register_module(
+        "gate_proj",
+        torch::nn::Linear(torch::nn::LinearOptions(model_dim, hidden_dim).bias(false)));
+    up_proj = register_module(
+        "up_proj",
+        torch::nn::Linear(torch::nn::LinearOptions(model_dim, hidden_dim).bias(false)));
+    down_proj = register_module(
+        "down_proj",
+        torch::nn::Linear(torch::nn::LinearOptions(hidden_dim, model_dim).bias(false)));
   }
 
   torch::Tensor forward(const torch::Tensor& x) {
-    auto y = fc1->forward(x);
-    y = torch::gelu(y);
-    y = fc2->forward(y);
-    return y;
+    auto gate = torch::silu(gate_proj->forward(x));
+    auto up = up_proj->forward(x);
+    auto hidden = gate * up;
+    return down_proj->forward(hidden);
   }
 };
 
@@ -47,6 +55,7 @@ public:
   MoeOutput forward(const torch::Tensor& x);
 
   const ModelConfig& cfg() const { return cfg_; }
+  bool is_moe_layer() const { return use_moe_; }
 
   // Router weights access (for loader mapping later)
   torch::Tensor& router_w() { return router_->weight; }
@@ -55,10 +64,13 @@ public:
   // Expose raw expert module pointers for loader mapping.
   // (Order is stable: expert_0..expert_{E-1}, or dense_0 for non-MoE.)
   std::vector<torch::nn::Module*>& experts() { return experts_raw_; }
+  ExpertMLP& expert(int32_t idx) { return experts_mods_.at((size_t)idx); }
+  int32_t expert_count() const { return static_cast<int32_t>(experts_mods_.size()); }
 
 private:
   ModelConfig cfg_;
   int32_t layer_index_in_stage_ = 0;
+  bool use_moe_ = false;
 
   // Router: D -> num_experts (only when use_moe=true)
   torch::nn::Linear router_{nullptr};
@@ -70,6 +82,7 @@ private:
 private:
   int64_t model_dim() const { return cfg_.hidden_size; }
   int64_t expert_hidden_dim() const {
+    if (cfg_.moe_intermediate_size > 0) return cfg_.moe_intermediate_size;
     if (cfg_.intermediate_size > 0) return cfg_.intermediate_size;
     return cfg_.hidden_size * 4;
   }
