@@ -1,0 +1,169 @@
+{
+  "lm_head.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      256,
+      64
+    ]
+  },
+  "model.language_model.embed_tokens.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      256,
+      64
+    ]
+  },
+  "model.language_model.layers.0.input_layernorm.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64
+    ]
+  },
+  "model.language_model.layers.0.mlp.experts.down_proj": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      4,
+      64,
+      128
+    ]
+  },
+  "model.language_model.layers.0.mlp.experts.gate_up_proj": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      4,
+      256,
+      64
+    ]
+  },
+  "model.language_model.layers.0.mlp.gate.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      4,
+      64
+    ]
+  },
+  "model.language_model.layers.0.post_attention_layernorm.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64
+    ]
+  },
+  "model.language_model.layers.0.self_attn.k_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      16,
+      64
+    ]
+  },
+  "model.language_model.layers.0.self_attn.o_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64,
+      64
+    ]
+  },
+  "model.language_model.layers.0.self_attn.q_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64,
+      64
+    ]
+  },
+  "model.language_model.layers.0.self_attn.v_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      16,
+      64
+    ]
+  },
+  "model.language_model.layers.1.input_layernorm.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64
+    ]
+  },
+  "model.language_model.layers.1.mlp.experts.down_proj": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      4,
+      64,
+      128
+    ]
+  },
+  "model.language_model.layers.1.mlp.experts.gate_up_proj": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      4,
+      256,
+      64
+    ]
+  },
+  "model.language_model.layers.1.mlp.gate.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      4,
+      64
+    ]
+  },
+  "model.language_model.layers.1.post_attention_layernorm.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64
+    ]
+  },
+  "model.language_model.layers.1.self_attn.k_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      16,
+      64
+    ]
+  },
+  "model.language_model.layers.1.self_attn.o_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64,
+      64
+    ]
+  },
+  "model.language_model.layers.1.self_attn.q_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64,
+      64
+    ]
+  },
+  "model.language_model.layers.1.self_attn.v_proj.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      16,
+      64
+    ]
+  },
+  "model.language_model.norm.weight": {
+    "device": "cpu",
+    "dtype": "float16",
+    "shape": [
+      64
+    ]
+  }
+}

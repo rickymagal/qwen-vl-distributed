@@ -50,6 +50,20 @@ python_export/.venv/bin/python python_export/reduced_export.py \
 
 Then run `parity_runner` directly (C++ only). Python parity is only meaningful with real weights.
 
+## Vision Coverage Validation (no full weights)
+
+Use the manifest-based validator to check that vision keys and block fields are present:
+
+```bash
+python_export/validate_vision_manifest.py \
+  --hf-config /path/to/hf_config.json \
+  --manifest /path/to/weights_manifest.json \
+  --min-blocks 1
+```
+
+The repo also includes a minimal fixture for unit testing:
+`tests/fixtures/vision_manifest.json`.
+
 ### Reduced Export Report (synthetic weights)
 
 Run:

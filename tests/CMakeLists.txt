@@ -38,3 +38,11 @@ qwen_add_test(test_smoke_forward_cuda
 qwen_add_test(test_model_loader
   test_model_loader.cpp
 )
+
+add_test(
+  NAME test_vision_manifest
+  COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../python_export/validate_vision_manifest.py
+          --hf-config ${CMAKE_CURRENT_SOURCE_DIR}/../python_export/reduced_export_out/hf_config.json
+          --manifest ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/vision_manifest.json
+          --min-blocks 2
+)

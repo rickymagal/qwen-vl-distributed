@@ -130,6 +130,15 @@ def main() -> None:
             weights[f"{base}.mlp.down_proj.weight"] = torch.randn(hidden, intermediate, dtype=dt)
 
     torch.save(weights, out_dir / "weights.pt")
+
+    manifest = {}
+    for k, v in weights.items():
+        manifest[k] = {
+            "shape": list(v.shape),
+            "dtype": str(v.dtype).replace("torch.", ""),
+            "device": str(v.device),
+        }
+    _save_json(out_dir / "weights_manifest.json", manifest)
     print(f"[reduced_export] wrote {out_dir}")
 
 

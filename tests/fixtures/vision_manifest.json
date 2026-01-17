@@ -1,0 +1,38 @@
+{
+  "model.visual.patch_embed.proj.weight": {"shape": [64, 3, 14, 14], "dtype": "float16"},
+  "model.visual.patch_embed.proj.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.pos_embed.weight": {"shape": [1, 197, 64], "dtype": "float16"},
+
+  "model.visual.blocks.0.attn.qkv.weight": {"shape": [192, 64], "dtype": "float16"},
+  "model.visual.blocks.0.attn.qkv.bias": {"shape": [192], "dtype": "float16"},
+  "model.visual.blocks.0.attn.proj.weight": {"shape": [64, 64], "dtype": "float16"},
+  "model.visual.blocks.0.attn.proj.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.0.mlp.linear_fc1.weight": {"shape": [256, 64], "dtype": "float16"},
+  "model.visual.blocks.0.mlp.linear_fc1.bias": {"shape": [256], "dtype": "float16"},
+  "model.visual.blocks.0.mlp.linear_fc2.weight": {"shape": [64, 256], "dtype": "float16"},
+  "model.visual.blocks.0.mlp.linear_fc2.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.0.norm1.weight": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.0.norm1.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.0.norm2.weight": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.0.norm2.bias": {"shape": [64], "dtype": "float16"},
+
+  "model.visual.blocks.1.attn.qkv.weight": {"shape": [192, 64], "dtype": "float16"},
+  "model.visual.blocks.1.attn.qkv.bias": {"shape": [192], "dtype": "float16"},
+  "model.visual.blocks.1.attn.proj.weight": {"shape": [64, 64], "dtype": "float16"},
+  "model.visual.blocks.1.attn.proj.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.1.mlp.linear_fc1.weight": {"shape": [256, 64], "dtype": "float16"},
+  "model.visual.blocks.1.mlp.linear_fc1.bias": {"shape": [256], "dtype": "float16"},
+  "model.visual.blocks.1.mlp.linear_fc2.weight": {"shape": [64, 256], "dtype": "float16"},
+  "model.visual.blocks.1.mlp.linear_fc2.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.1.norm1.weight": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.1.norm1.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.1.norm2.weight": {"shape": [64], "dtype": "float16"},
+  "model.visual.blocks.1.norm2.bias": {"shape": [64], "dtype": "float16"},
+
+  "model.visual.merger.linear_fc1.weight": {"shape": [64, 64], "dtype": "float16"},
+  "model.visual.merger.linear_fc1.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.merger.linear_fc2.weight": {"shape": [64, 64], "dtype": "float16"},
+  "model.visual.merger.linear_fc2.bias": {"shape": [64], "dtype": "float16"},
+  "model.visual.merger.norm.weight": {"shape": [64], "dtype": "float16"},
+  "model.visual.merger.norm.bias": {"shape": [64], "dtype": "float16"}
+}

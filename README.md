@@ -57,6 +57,7 @@ Delivered:
 - **C++ weight loader with strict checks** (shape/dtype validation, missing/mismatch reporting) and MoE gate_up/down handling.
 - **Export validation + parity tooling**:
   - `python_export/validate_export.py` (key coverage checks)
+  - `python_export/validate_vision_manifest.py` (vision key coverage without full weights)
   - `python_export/parity_check.py` + `build/parity_runner` (parity harness)
   - `docs/parity_validation.md` (workflow and reduced-export report)
 - **Reduced export validation report** recorded in `docs/parity_validation.md`.
