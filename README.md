@@ -59,6 +59,8 @@ Delivered:
   - `python_export/validate_export.py` (key coverage checks)
   - `python_export/validate_vision_manifest.py` (vision key coverage without full weights)
   - `python_export/parity_check.py` + `build/parity_runner` (parity harness)
+  - `build/distributed_parity_stage` + `python_export/compare_tensors.py` (distributed parity and C++ vs C++ comparison)
+  - `build/distributed_transport_check` (transport integrity validation)
   - `docs/parity_validation.md` (workflow and reduced-export report)
 - **Reduced export validation report** recorded in `docs/parity_validation.md`.
 

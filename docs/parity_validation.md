@@ -64,6 +64,165 @@ python_export/validate_vision_manifest.py \
 The repo also includes a minimal fixture for unit testing:
 `tests/fixtures/vision_manifest.json`.
 
+## Distributed Parity (multi-machine)
+
+Run one process per stage on each machine. Each non-first stage listens on a port
+and forwards activations to the next stage host.
+
+Stage 0 (machine A):
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 0 \
+  --next-host <hostB> \
+  --next-port 5001 \
+  --input-ids /path/to/input_ids.pt
+```
+
+Stage 1 (machine B):
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 1 \
+  --listen 5001 \
+  --next-host <hostC> \
+  --next-port 5002
+```
+
+Stage 2 (machine C):
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 2 \
+  --listen 5002 \
+  --next-host <hostD> \
+  --next-port 5003
+```
+
+Stage 3 (machine D, final):
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 3 \
+  --listen 5003 \
+  --out /path/to/distributed_out.pt
+```
+
+Compare `/path/to/distributed_out.pt` against a Python reference (see above).
+
+## Distributed Parity (single machine, multi-process)
+
+Use the same binary with loopback and different ports. Example for 4 stages:
+
+Stage 0:
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 0 \
+  --next-host 127.0.0.1 \
+  --next-port 5001 \
+  --input-ids /path/to/input_ids.pt
+```
+
+Stage 1:
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 1 \
+  --listen 5001 \
+  --next-host 127.0.0.1 \
+  --next-port 5002
+```
+
+Stage 2:
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 2 \
+  --listen 5002 \
+  --next-host 127.0.0.1 \
+  --next-port 5003
+```
+
+Stage 3:
+
+```bash
+./build/distributed_parity_stage \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --num-stages 4 \
+  --stage-idx 3 \
+  --listen 5003 \
+  --out /tmp/distributed_out.pt
+```
+
+## C++ vs C++ Parity (distributed vs single)
+
+1) Run `parity_runner` for a single-process output:
+
+```bash
+./build/parity_runner \
+  --hf-config /path/to/hf_config.json \
+  --weights /path/to/weights.pt \
+  --out /tmp/single_out.pt \
+  --input-ids /path/to/input_ids.pt
+```
+
+2) Run the distributed pipeline (multi-process or multi-machine) to produce `/tmp/distributed_out.pt`.
+
+3) Compare outputs:
+
+```bash
+python_export/compare_tensors.py \
+  --a /tmp/single_out.pt \
+  --b /tmp/distributed_out.pt
+```
+
+## Distributed Transport Integrity Check
+
+This check validates activation transport over TCP by sending a tensor and verifying a checksum.
+
+Server (receiver):
+
+```bash
+./build/distributed_transport_check \
+  --mode server \
+  --port 6000
+```
+
+Client (sender):
+
+```bash
+./build/distributed_transport_check \
+  --mode client \
+  --host <server_host> \
+  --port 6000 \
+  --shape 1,8,64 \
+  --dtype fp16 \
+  --seed 1234
+```
+
 ### Reduced Export Report (synthetic weights)
 
 Run:
