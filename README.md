@@ -140,3 +140,9 @@ Typical usage (flags may vary slightly per stage binary; see `--help`):
 - `docs/distributed_execution_design.md` — distributed plan + concrete shard tables for S=2/4/8
 - `docs/distributed_runtime.md` — activation/KV wire format + multi-machine demo
 - `docs/parity_validation.md` — parity workflow and reporting
+
+## Helpers
+
+- `scripts/run_distributed_runtime_local.sh` — local 2-stage multi-process demo (auto-reduced export)
+- `scripts/run_distributed_runtime_stage.sh` — per-host stage runner for multi-machine demos
+- `scripts/check_cuda_env.sh` — CUDA + LibTorch environment diagnostics

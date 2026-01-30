@@ -95,3 +95,109 @@ Host A (stage 0 / first stage, sends):
 - `tests/test_kv_wire.cpp` validates KV pack/restore roundtrip.
 - `tests/test_transport_kv.cpp` validates activation + KV TCP transfer determinism.
 - `build/distributed_transport_check` provides an end-to-end transport integrity check.
+
+## 5) Helper Scripts
+
+### 5.1 Local two-stage demo
+
+Runs a 2-stage pipeline on one host (localhost TCP), with a reduced export auto-generated if missing.
+
+```bash
+scripts/run_distributed_runtime_local.sh
+```
+
+If CUDA initialization fails, run the diagnostic helper:
+```bash
+scripts/check_cuda_env.sh
+```
+
+Environment overrides:
+- `OUT_DIR` (reduced export output dir)
+- `PORT` (listen port)
+- `DEVICE0`, `DEVICE1`
+- `L0`, `L1` (layer starts for stage0/stage1)
+- `OUT_FILE`, `KV_OUT_FILE`
+
+### 5.2 Per-host stage runner
+
+Use on each host in a multi-machine setup (set env vars then run).
+
+Stage 1 (listener):
+```bash
+NUM_STAGES=2 STAGE_IDX=1 LISTEN_PORT=7001 RECV_KV=1 \
+OUT_FILE=/tmp/pipeline_out.pt KV_OUT_FILE=/tmp/kv_stage0.pt \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Stage 0 (sender):
+```bash
+NUM_STAGES=2 STAGE_IDX=0 NEXT_HOST=<HOST_B_IP> NEXT_PORT=7001 SEND_KV=1 \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Optional overrides:
+- `HF_CFG`, `WEIGHTS`, `OUT_DIR`
+- `LAYER_BEGIN`, `LAYER_END`
+- `DEVICE`
+- `KV_RESTORE=1` (only if layer ranges are identical on both sides)
+
+## 6) Multi-stage Examples
+
+### 6.1 Three-stage (hosts A, B, C)
+
+Host C (stage 2, last):
+```bash
+NUM_STAGES=3 STAGE_IDX=2 LISTEN_PORT=7002 RECV_KV=1 \
+OUT_FILE=/tmp/pipeline_out.pt KV_OUT_FILE=/tmp/kv_stage1.pt \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Host B (stage 1, middle):
+```bash
+NUM_STAGES=3 STAGE_IDX=1 LISTEN_PORT=7001 NEXT_HOST=<HOST_C_IP> NEXT_PORT=7002 \
+RECV_KV=1 SEND_KV=1 KV_OUT_FILE=/tmp/kv_stage0.pt \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Host A (stage 0, first):
+```bash
+NUM_STAGES=3 STAGE_IDX=0 NEXT_HOST=<HOST_B_IP> NEXT_PORT=7001 SEND_KV=1 \
+scripts/run_distributed_runtime_stage.sh
+```
+
+### 6.2 Four-stage (hosts A, B, C, D)
+
+Host D (stage 3, last):
+```bash
+NUM_STAGES=4 STAGE_IDX=3 LISTEN_PORT=7003 RECV_KV=1 \
+OUT_FILE=/tmp/pipeline_out.pt KV_OUT_FILE=/tmp/kv_stage2.pt \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Host C (stage 2):
+```bash
+NUM_STAGES=4 STAGE_IDX=2 LISTEN_PORT=7002 NEXT_HOST=<HOST_D_IP> NEXT_PORT=7003 \
+RECV_KV=1 SEND_KV=1 KV_OUT_FILE=/tmp/kv_stage1.pt \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Host B (stage 1):
+```bash
+NUM_STAGES=4 STAGE_IDX=1 LISTEN_PORT=7001 NEXT_HOST=<HOST_C_IP> NEXT_PORT=7002 \
+RECV_KV=1 SEND_KV=1 KV_OUT_FILE=/tmp/kv_stage0.pt \
+scripts/run_distributed_runtime_stage.sh
+```
+
+Host A (stage 0):
+```bash
+NUM_STAGES=4 STAGE_IDX=0 NEXT_HOST=<HOST_B_IP> NEXT_PORT=7001 SEND_KV=1 \
+scripts/run_distributed_runtime_stage.sh
+```
+
+## 7) Host Checklist (before running)
+
+- Ensure `build/distributed_pipeline_stage` exists on each host.
+- Confirm each host can reach the next host/port (firewall open).
+- Copy `python_export/reduced_export_out/` or full export to each host (paths match `HF_CFG`/`WEIGHTS`).
+- Set `NUM_STAGES` and `STAGE_IDX` consistently across hosts.
+- Start last stage first, then middle stages, then stage 0.
