@@ -117,6 +117,9 @@ Environment overrides:
 - `DEVICE0`, `DEVICE1`
 - `L0`, `L1` (layer starts for stage0/stage1)
 - `OUT_FILE`, `KV_OUT_FILE`
+- `FORCE_REDUCED=1` (regenerate reduced export with small max_position)
+- `MODEL_ID` (used only if config download is needed)
+- `CONFIG_PATH` (local config JSON; defaults to `python_export/minimal_hf_config.json`)
 
 ### 5.2 Per-host stage runner
 

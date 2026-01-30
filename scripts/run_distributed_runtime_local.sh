@@ -9,6 +9,9 @@ OUT_DIR="${OUT_DIR:-$ROOT/python_export/reduced_export_out}"
 OUT_FILE="${OUT_FILE:-/tmp/pipeline_out.pt}"
 KV_OUT_FILE="${KV_OUT_FILE:-/tmp/kv_stage0.pt}"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/python_export/.venv/bin/python}"
+FORCE_REDUCED="${FORCE_REDUCED:-0}"
+MODEL_ID="${MODEL_ID:-Qwen/Qwen3-VL-235B-A22B-Thinking}"
+CONFIG_PATH="${CONFIG_PATH:-$ROOT/python_export/minimal_hf_config.json}"
 
 PORT="${PORT:-7001}"
 DEVICE0="${DEVICE0:-0}"
@@ -23,6 +26,9 @@ if [[ ! -x "$BIN" ]]; then
   exit 2
 fi
 
+if [[ "$FORCE_REDUCED" == "1" ]]; then
+  rm -rf "$OUT_DIR"
+fi
 if [[ ! -f "$OUT_DIR/hf_config.json" || ! -f "$OUT_DIR/weights.pt" ]]; then
   if [[ ! -x "$PYTHON_BIN" ]]; then
     echo "[runtime] python not found: $PYTHON_BIN"
@@ -30,11 +36,14 @@ if [[ ! -f "$OUT_DIR/hf_config.json" || ! -f "$OUT_DIR/weights.pt" ]]; then
   fi
   echo "[runtime] reduced export not found, generating -> $OUT_DIR"
   "$PYTHON_BIN" python_export/reduced_export.py \
-    --out "$OUT_DIR" \
-    --override-layers 2 \
+    --model-id "$MODEL_ID" \
+    --config-path "$CONFIG_PATH" \
+    --out-dir "$OUT_DIR" \
+    --num-layers 2 \
     --override-hidden 64 \
     --override-heads 4 \
-    --override-kv-heads 2
+    --override-kv-heads 2 \
+    --override-max-position 128
 fi
 
 pids=()
