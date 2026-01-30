@@ -58,7 +58,8 @@ Each stage owns KV for its blocks:
 
 - For each generated token step, the stage updates its KV cache
 - No stage requests KV from another stage
-- KV is not transferred between machines in v1
+- Default execution keeps KV local to each stage (no cross-stage dependency)
+- The runtime supports an **optional KV handoff** wire format for stateless stages or validation (see `docs/distributed_runtime.md`)
 
 KV lifecycle:
 - Created at request start (or first token)

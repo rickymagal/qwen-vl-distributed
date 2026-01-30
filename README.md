@@ -64,6 +64,15 @@ Delivered:
   - `docs/parity_validation.md` (workflow and reduced-export report)
 - **Reduced export validation report** recorded in `docs/parity_validation.md`.
 
+### Milestone 4 — Multi-machine distributed pipeline runtime (DONE)
+
+Delivered:
+- **Independent CUDA executables** that run each pipeline stage on a separate machine:
+  - `build/distributed_pipeline_stage` (multi-machine activation + optional KV handoff)
+  - `build/distributed_transport_check` (transport integrity validation)
+- **Network-based activation + KV-cache wire format** and handoff contract documented in `docs/distributed_runtime.md`.
+- **Runnable multi-machine demo** (2-stage example) documented in `docs/distributed_runtime.md`.
+
 ## Repository layout
 
 - `include/` — public headers (`core/`, `model/`, `runtime/`, `vision/`, `loader/`)
@@ -129,4 +138,5 @@ Typical usage (flags may vary slightly per stage binary; see `--help`):
 - `docs/architecture.md` — architecture/spec lock
 - `docs/weight_mapping.md` — HuggingFace tensor-key → C++ parameter mapping
 - `docs/distributed_execution_design.md` — distributed plan + concrete shard tables for S=2/4/8
+- `docs/distributed_runtime.md` — activation/KV wire format + multi-machine demo
 - `docs/parity_validation.md` — parity workflow and reporting

@@ -217,6 +217,50 @@ ActivationPacket TcpClient::recv_activation() {
   return p;
 }
 
+void TcpClient::send_kv(const KVPacket& p) {
+  int32_t version = htonl((uint32_t)p.version);
+  int32_t stage_from = htonl((uint32_t)p.stage_from);
+  int32_t stage_to = htonl((uint32_t)p.stage_to);
+
+  uint64_t step_net = hton_u64((uint64_t)p.step);
+  uint64_t pos_net  = hton_u64((uint64_t)p.pos);
+
+  write_all(fd_, &version, sizeof(version));
+  write_all(fd_, &stage_from, sizeof(stage_from));
+  write_all(fd_, &stage_to, sizeof(stage_to));
+  write_all(fd_, &step_net, sizeof(step_net));
+  write_all(fd_, &pos_net, sizeof(pos_net));
+
+  send_tensor(fd_, p.k.value_or(torch::Tensor()));
+  send_tensor(fd_, p.v.value_or(torch::Tensor()));
+}
+
+KVPacket TcpClient::recv_kv() {
+  KVPacket p;
+
+  int32_t version=0, stage_from=0, stage_to=0;
+  uint64_t step_net=0, pos_net=0;
+
+  read_all(fd_, &version, sizeof(version));
+  read_all(fd_, &stage_from, sizeof(stage_from));
+  read_all(fd_, &stage_to, sizeof(stage_to));
+  read_all(fd_, &step_net, sizeof(step_net));
+  read_all(fd_, &pos_net, sizeof(pos_net));
+
+  p.version = (int32_t)ntohl((uint32_t)version);
+  p.stage_from = (int32_t)ntohl((uint32_t)stage_from);
+  p.stage_to   = (int32_t)ntohl((uint32_t)stage_to);
+  p.step = (int64_t)ntoh_u64(step_net);
+  p.pos  = (int64_t)ntoh_u64(pos_net);
+
+  auto k = recv_tensor(fd_);
+  auto v = recv_tensor(fd_);
+  if (k.defined()) p.k = k;
+  if (v.defined()) p.v = v;
+
+  return p;
+}
+
 TcpServer::TcpServer(int port) {
   fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
   if (fd_ < 0) throw_sys("socket");
@@ -233,6 +277,13 @@ TcpServer::TcpServer(int port) {
   addr.sin_port = htons((uint16_t)port);
 
   if (::bind(fd_, (sockaddr*)&addr, sizeof(addr)) < 0) throw_sys("bind");
+  {
+    sockaddr_in bound;
+    socklen_t len = sizeof(bound);
+    if (::getsockname(fd_, (sockaddr*)&bound, &len) == 0) {
+      port_ = (int)ntohs(bound.sin_port);
+    }
+  }
   if (::listen(fd_, 16) < 0) throw_sys("listen");
 }
 
@@ -294,6 +345,50 @@ void TcpConn::send_activation_raw(const ActivationPacket& p) {
 
   send_tensor(fd_, p.hidden);
   send_tensor(fd_, p.attn_mask.value_or(torch::Tensor()));
+}
+
+void TcpConn::send_kv(const KVPacket& p) {
+  int32_t version = htonl((uint32_t)p.version);
+  int32_t stage_from = htonl((uint32_t)p.stage_from);
+  int32_t stage_to = htonl((uint32_t)p.stage_to);
+
+  uint64_t step_net = hton_u64((uint64_t)p.step);
+  uint64_t pos_net  = hton_u64((uint64_t)p.pos);
+
+  write_all(fd_, &version, sizeof(version));
+  write_all(fd_, &stage_from, sizeof(stage_from));
+  write_all(fd_, &stage_to, sizeof(stage_to));
+  write_all(fd_, &step_net, sizeof(step_net));
+  write_all(fd_, &pos_net, sizeof(pos_net));
+
+  send_tensor(fd_, p.k.value_or(torch::Tensor()));
+  send_tensor(fd_, p.v.value_or(torch::Tensor()));
+}
+
+KVPacket TcpConn::recv_kv() {
+  KVPacket p;
+
+  int32_t version=0, stage_from=0, stage_to=0;
+  uint64_t step_net=0, pos_net=0;
+
+  read_all(fd_, &version, sizeof(version));
+  read_all(fd_, &stage_from, sizeof(stage_from));
+  read_all(fd_, &stage_to, sizeof(stage_to));
+  read_all(fd_, &step_net, sizeof(step_net));
+  read_all(fd_, &pos_net, sizeof(pos_net));
+
+  p.version = (int32_t)ntohl((uint32_t)version);
+  p.stage_from = (int32_t)ntohl((uint32_t)stage_from);
+  p.stage_to   = (int32_t)ntohl((uint32_t)stage_to);
+  p.step = (int64_t)ntoh_u64(step_net);
+  p.pos  = (int64_t)ntoh_u64(pos_net);
+
+  auto k = recv_tensor(fd_);
+  auto v = recv_tensor(fd_);
+  if (k.defined()) p.k = k;
+  if (v.defined()) p.v = v;
+
+  return p;
 }
 
 } // namespace qwen

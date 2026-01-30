@@ -39,6 +39,14 @@ qwen_add_test(test_model_loader
   test_model_loader.cpp
 )
 
+qwen_add_test(test_kv_wire
+  test_kv_wire.cpp
+)
+
+qwen_add_test(test_transport_kv
+  test_transport_kv.cpp
+)
+
 add_test(
   NAME test_vision_manifest
   COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../python_export/validate_vision_manifest.py
